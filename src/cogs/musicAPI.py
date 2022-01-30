@@ -1,3 +1,4 @@
+from pickle import NONE
 import re
 
 import discord
@@ -51,7 +52,7 @@ class LavalinkVoiceClient(discord.VoiceClient):
         """
         # ensure there is a player_manager when creating a new voice_client
         self.lavalink.player_manager.create(guild_id=self.channel.guild.id)
-        await self.channel.guild.change_voice_state(channel=self.channel)
+        await self.channel.guild.change_voice_state(channel=self.channel, self_deaf=True)
 
     async def disconnect(self, *, force: bool) -> None:
         """
@@ -151,17 +152,8 @@ class Music(commands.Cog):
             guild_id = int(event.player.guild_id)
             guild = self.bot.get_guild(guild_id)
             await guild.voice_client.disconnect(force=True)
-    # End of Classes
 
-    def ms_to_normal(self, ms):
-        sec = ms / 1000
-        if sec >= 60: # more than 1 min
-            duration_time = f"{int(sec//60)}:{int(sec%60)} min"
-        elif sec >= 3600: #more than 1 hour
-            duration_time = f"{int(sec//3600)}:{int((sec%3600)//60)}:{int((sec%3600)%60)} hours"
-        return duration_time
-
-    # Command Recieve
+    # Command
     @commands.command(aliases=['p'])
     async def play(self, ctx, *, query: str):
         """ Searches and plays a song from a given query. """
@@ -217,7 +209,7 @@ class Music(commands.Cog):
         if not player.is_playing:
             await player.play()
 
-    @commands.command(aliases=['le'])
+    @commands.command(name='leave')
     async def leave(self, ctx):
         """ Disconnects the player from the voice channel and clears its queue. """
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
@@ -244,21 +236,22 @@ class Music(commands.Cog):
     @commands.command(aliases=['q'])
     async def queue(self, ctx):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        queue_embed = discord.Embed(colour=0x98EBF1, title="Now playing", description=f"{player.current.title} {self.ms_to_normal(player.current.duration)}")
+        queue_embed = discord.Embed(colour=0x98EBF1, title="Now playing", description=f"[{player.current.title}]({player.current.uri}) {lavalink.format_time(player.current.duration)}")
         queue_lists = ""
 
         if len(player.queue) != 0:
             for x in range(0, len(player.queue)):
-                queue_lists += f"{str(x+1)}. {player.queue[x].title} {self.ms_to_normal(player.queue[x].duration)}\n"
+                queue_lists += f"{str(x+1)}. [{player.queue[x].title}]({player.queue[x].uri}) {lavalink.format_time(player.queue[x].duration)}\n"
         else:
             queue_lists = "There isn\'t any songs in queue"
 
         queue_embed.add_field(name=f"Queue {len(player.queue)} song(s)", value=f"{queue_lists}", inline=False)
         await ctx.send(embed=queue_embed, delete_after=20)
 
-    @commands.command(aliases=['l'])
-    async def loop(self, ctx, *, par):
+    @commands.command(aliases=['loopq'])
+    async def loopqueue(self, ctx, par: str=None):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+
         if par == 'off':
             if player.repeat:
                 player.set_repeat(False)
@@ -273,21 +266,23 @@ class Music(commands.Cog):
             else:
                 return await ctx.send("Loop queue is already on", delete_after=20)
 
-        elif par == None:
-            if player.repeat:
-                player.set_repeat(False)
-                return await ctx.send('Loop queue off', delete_after=20)
-            else:
+        elif par is None:
+            print("par is none")
+            if not player.repeat:
                 player.set_repeat(True)
-                return await ctx.send('Loop queue on', delete_after=20)
+                return await ctx.send("Loop queue on", delete_after=20)
+            elif player.repeat:
+                player.set_repeat(False)
+                return await ctx.send("Loop queue off", delete_after=20)
+        
 
-    @commands.command(aliases=['sk'])
+    @commands.command(name='skip')
     async def skip(self, ctx):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         await ctx.send(f"`{player.current.title}` is skipped by `{ctx.author.name}`")
         await player.skip()
 
-    @commands.command(aliases=['pa'])
+    @commands.command(name='pause')
     async def pause(self, ctx):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         
@@ -297,7 +292,7 @@ class Music(commands.Cog):
             await player.set_pause(True)
             return await ctx.send("Paused", delete_after=20)
 
-    @commands.command(aliases=['re'])
+    @commands.command(name='resume')
     async def resume(self, ctx):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
 
@@ -306,6 +301,16 @@ class Music(commands.Cog):
         else:
             await player.set_pause(False)
             return ctx.send('Resumed', delete_after=20)
+
+    @commands.command(name='remove')
+    async def remove(self, ctx, par: int = None):
+
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if par is None:
+            return ctx.send('Please insert number of music in queue!')
+        else:
+            player.queue.pop(par-1)
+            return ctx.send(f"Remove {player.queue[par].title}")
 
 def setup(bot):
     bot.add_cog(Music(bot))
