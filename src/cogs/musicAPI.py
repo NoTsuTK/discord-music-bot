@@ -1,17 +1,10 @@
-from cProfile import label
 import re
-from tkinter import Button
-from tkinter.ttk import Style
 
-# import discord
 import nextcord
 import lavalink
 from nextcord.ext import commands
 
-from nextcord.ui import Button
-
 url_rx = re.compile(r'https?://(?:www\.)?.+')
-
 
 class LavalinkVoiceClient(nextcord.VoiceClient):
 
@@ -84,6 +77,8 @@ class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+        
+
         if not hasattr(bot, 'lavalink'):  # This ensures the client isn't overwritten during cog reloads.
             bot.lavalink = lavalink.Client(bot.user.id)
             bot.lavalink.add_node('127.0.0.1', 2333, 'youshallnotpass', 'apac', 'default-node')  # Host, Port, Password, Region, Name
@@ -150,12 +145,18 @@ class Music(commands.Cog):
 
     async def track_hook(self, event):
         if isinstance(event, lavalink.events.QueueEndEvent):
-            # When this track_hook receives a "QueueEndEvent" from lavalink.py
-            # it indicates that there are no tracks left in the player's queue.
-            # To save on resources, we can tell the bot to disconnect from the voicechannel.
             guild_id = int(event.player.guild_id)
             guild = self.bot.get_guild(guild_id)
-            await guild.voice_client.disconnect(force=True)
+            player = self.bot.lavalink.player_manager.get(guild_id)
+            # await guild.voice_client.disconnect(force=True)
+
+        if isinstance(event, lavalink.events.TrackEndEvent):
+            guild_id = int(event.player.guild_id)
+            guild = self.bot.get_guild(guild_id)
+            player = self.bot.lavalink.player_manager.get(guild_id)
+
+            if(player.fetch('loopType') == 1):
+                await player.play(player.fetch('loopMusic'))
 
         elif isinstance(event, lavalink.events.TrackStartEvent):
             guild_id = int(event.player.guild_id)
@@ -163,45 +164,82 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(guild_id)
             
 
-            NowPlay = nextcord.Embed(title="Now playing...", description=f"[{player.current.title}]({player.current.uri})")
+            NowPlay = nextcord.Embed(title="กำลังเล่นเพลง :", description=f"[{player.current.title}]({player.current.uri})")
             NowPlay.set_image(url=f"https://i3.ytimg.com/vi/{player.current.uri[-11:]}/maxresdefault.jpg")
 
 
-            class PauseButton(nextcord.ui.View):
+            class PlayerButton(nextcord.ui.View):
+                
+                # PAUSE
+                @nextcord.ui.button(label="หยุด", style=nextcord.ButtonStyle.primary, emoji="⏸️", row=0)
+                async def pause_callback(self, button, interaction): 
+                    if(player.paused):
+                        button.label="หยุด"
+                        button.emoji="⏸️"
+                        await player.set_pause(False)
+                    else:
+                        button.label="เล่น"
+                        button.emoji="▶️"
+                        await player.set_pause(True)
+                    await interaction.response.edit_message(view=self)
+                    await interaction.followup.send("หยุดเล่นเพลง", delete_after=15)
 
-                @nextcord.ui.button(label="pause", style=nextcord.ButtonStyle.green, emoji="⏸️")
-                async def pause_callback(self, button, interaction): # PAUSE
-                    await player.set_pause(True)
-
-                @nextcord.ui.button(label="resume", style=nextcord.ButtonStyle.green, emoji="▶️")
-                async def resume_callback(self, button, interaction): # RESUME
-                    await player.set_pause(False)
-
-                @nextcord.ui.button(label="skip", style=nextcord.ButtonStyle.green, emoji="⏭️")
-                async def skip_callback(self, button, interaction): # SKIP
+                # SKIP
+                @nextcord.ui.button(label="ข้าม", style=nextcord.ButtonStyle.primary, emoji="⏭️", row=0)
+                async def skip_callback(self, button, interaction): 
                     await player.skip()
+                    await interaction.response.send_message("ข้ามไปเพลงต่อไป", delete_after=15)
 
-                @nextcord.ui.button(label="loop", style=nextcord.ButtonStyle.green, emoji="🔁")
-                async def loop_callback(self, button, interaction): # LOOP
-                    if not player.repeat:
-                        player.set_repeat(True)
-                        return await interaction.send("Loop on")
-                    if player.repeat:
+                # LOOP
+                @nextcord.ui.button(label="ลูป", style=nextcord.ButtonStyle.primary, emoji="🔁", row=0)
+                async def loop_callback(self, button, interaction):
+                    if(player.fetch('loopType') is None): # Loop one
                         player.set_repeat(False)
-                        return await interaction.send("Loop off")
+                        player.store('loopMusic', player.current)
+                        player.store('loopType', 1)
+                        await interaction.response.send_message("เล่นวนเพลงเดียว", delete_after=15)
 
-                @nextcord.ui.button(label="leave", style=nextcord.ButtonStyle.red, emoji="🚪")
-                async def leave_callback(interaction): # LEAVE
+                    elif(player.fetch('loopType') < 2): #Loop queue
+                        player.set_repeat(True)
+                        player.delete('loopMusic')
+                        player.store('loopType', player.fetch('loopType')+1)
+                        await interaction.response.send_message("เล่นวนทั้งลิสต์", delete_after=15)
+
+                    else:
+                        player.set_repeat(False)
+                        player.delete('loopType') #Loop off
+                        await interaction.response.send_message("ยกเลิกการเล่นวน", delete_after=15)
+
+                    print(player.fetch('loopType'))
+                    print(player.current)
+
+                @nextcord.ui.button(label="ออก", style=nextcord.ButtonStyle.danger, emoji="⏏️", row=0)
+                async def leave_callback(self, button, interaction): # LEAVE
                     if not player.is_connected:
-                        return await interaction.send('I\'m not in any voice channel')
+                        return await interaction.send('ฉันยังไม่ได้เล่นเพลงเลยนะ !!!')
                     if not interaction.user.voice or (player.is_connected and interaction.user.voice.channel.id != int(player.channel_id)):
-                        return await interaction.send('You\'re not in my voicechannel!')
+                        return await interaction.send('คุณไม่ได้อยู่ในห้องของเรานะ !!!')
                     player.queue.clear()
                     await player.stop()
                     await guild.voice_client.disconnect(force=True)
-                    await interaction.send('Left voice channel. See you again!')
+                    await interaction.response.send_message("ไปก่อนนะ จุ๊บๆ", delete_after=15)
 
-            ButtonMenu = PauseButton()
+                @nextcord.ui.button(label="ลดเสียง", style=nextcord.ButtonStyle.red, emoji="🔉" , row=1)
+                async def reduceVol_callback(self, button, interaction):
+                    await player.set_volume(player.volume - 20)
+                    await interaction.response.send_message(f"ลดเสียงเหลือ: {player.volume}", delete_after=15)
+
+                @nextcord.ui.button(label="เพื่มเสียง", style=nextcord.ButtonStyle.green, emoji="🔊", row=1)
+                async def increaseVol_callback(self, button, interaction):
+                    await player.set_volume(player.volume + 20)
+                    await interaction.response.send_message(f"เพิ่มเสียงเป็น: {player.volume}", delete_after=15)
+
+                @nextcord.ui.button(label="ล้างคิวเพลง", style=nextcord.ButtonStyle.primary, emoji="⚙️", row=1)
+                async def clearQueue_List(self, button, interaction):
+                    await player.queue.clear()
+                    await interaction.response.send_message("เคลียร์คิวเพลง", delete_after=15)
+
+            ButtonMenu = PlayerButton()
 
             chanel = self.bot.get_channel(934496557900914759)
             await chanel.send(embed=NowPlay, view=ButtonMenu)
@@ -209,7 +247,7 @@ class Music(commands.Cog):
         
 
     # Command
-    @commands.command(aliases=['p'])
+    @commands.command(aliases=['p','เล่นเพลง'])
     async def play(self, ctx, *, query: str):
         """ Searches and plays a song from a given query. """
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
@@ -223,12 +261,8 @@ class Music(commands.Cog):
         # Get the results for the query from Lavalink.
         results = await player.node.get_tracks(query)
 
-        # Results could be None if Lavalink returns an invalid response (non-JSON/non-200 (OK)).
-        # ALternatively, resullts['tracks'] could be an empty array if the query yielded no tracks.
         if not results or not results['tracks']:
             return await ctx.send('Nothing found!')
-
-        embed = nextcord.Embed(color=nextcord.Color.blurple())
 
         # Valid loadTypes are:
         #   TRACK_LOADED    - single video/direct URL)
@@ -242,22 +276,14 @@ class Music(commands.Cog):
             for track in tracks:
                 # Add all of the tracks from the playlist to the queue.
                 player.add(requester=ctx.author.id, track=track)
-
-            embed.title = 'Playlist Enqueued!'
-            embed.description = f'{results["playlistInfo"]["name"]} - {len(tracks)} tracks'
         else:
             track = results['tracks'][0]
-            embed.title = 'Track Enqueued'
-            embed.description = f'[{track["info"]["title"]}]({track["info"]["uri"]})'
 
             # You can attach additional information to audiotracks through kwargs, however this involves
             # constructing the AudioTrack class yourself.
             track = lavalink.models.AudioTrack(track, ctx.author.id, recommended=True)
             player.add(requester=ctx.author.id, track=track)
 
-        await ctx.send(embed=embed, delete_after=15)
-
-        # We don't want to call .play() if the player is playing as that will effectively skip
         # the current track.
         if not player.is_playing:
             await player.play()
@@ -266,7 +292,7 @@ class Music(commands.Cog):
     @commands.command(aliases=['q'])
     async def queue(self, ctx):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        queue_embed = nextcord.Embed(colour=0x98EBF1, title="Now playing", description=f"[{player.current.title}]({player.current.uri}) {lavalink.format_time(player.current.duration)}")
+        queue_embed = nextcord.Embed(colour=0x98EBF1, title="NOW PLAYING", description=f"[{player.current.title}]({player.current.uri}) {lavalink.format_time(player.current.duration)}")
         queue_lists = ""
 
         if len(player.queue) != 0:
@@ -277,33 +303,6 @@ class Music(commands.Cog):
 
         queue_embed.add_field(name=f"Queue {len(player.queue)} song(s)", value=f"{queue_lists}", inline=False)
         await ctx.send(embed=queue_embed, delete_after=20)
-
-    @commands.command(aliases=['loopq'])
-    async def loopqueue(self, ctx, par: str=None):
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-
-        if par == 'off':
-            if player.repeat:
-                player.set_repeat(False)
-                return await ctx.send("Loop queue off", delete_after=20)
-            else:
-                return await ctx.send("Loop queue is already off", delete_after=20)
-
-        elif par == 'on':
-            if not player.repeat:
-                player.set_repeat(True)
-                return await ctx.send("Loop queue on", delete_after=20)
-            else:
-                return await ctx.send("Loop queue is already on", delete_after=20)
-
-        elif par is None:
-            print("par is none")
-            if not player.repeat:
-                player.set_repeat(True)
-                return await ctx.send("Loop queue on", delete_after=20)
-            elif player.repeat:
-                player.set_repeat(False)
-                return await ctx.send("Loop queue off", delete_after=20)
 
     @commands.command(name='remove')
     async def remove(self, ctx, par: int = None):
