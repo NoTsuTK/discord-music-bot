@@ -1,17 +1,21 @@
-from pickle import NONE
+from cProfile import label
 import re
+from tkinter import Button
+from tkinter.ttk import Style
 
-import discord
-from discord.ext.commands.core import command
+# import discord
+import nextcord
 import lavalink
-from discord.ext import commands
+from nextcord.ext import commands
+
+from nextcord.ui import Button
 
 url_rx = re.compile(r'https?://(?:www\.)?.+')
 
 
-class LavalinkVoiceClient(discord.VoiceClient):
+class LavalinkVoiceClient(nextcord.VoiceClient):
 
-    def __init__(self, client: discord.Client, channel: discord.abc.Connectable):
+    def __init__(self, client: nextcord.Client, channel: nextcord.abc.Connectable):
         self.client = client
         self.channel = channel
         # ensure there exists a client already
@@ -153,13 +157,62 @@ class Music(commands.Cog):
             guild = self.bot.get_guild(guild_id)
             await guild.voice_client.disconnect(force=True)
 
+        elif isinstance(event, lavalink.events.TrackStartEvent):
+            guild_id = int(event.player.guild_id)
+            guild = self.bot.get_guild(guild_id)
+            player = self.bot.lavalink.player_manager.get(guild_id)
+            
+
+            NowPlay = nextcord.Embed(title="Now playing...", description=f"[{player.current.title}]({player.current.uri})")
+            NowPlay.set_image(url=f"https://i3.ytimg.com/vi/{player.current.uri[-11:]}/maxresdefault.jpg")
+
+
+            class PauseButton(nextcord.ui.View):
+
+                @nextcord.ui.button(label="pause", style=nextcord.ButtonStyle.green, emoji="⏸️")
+                async def pause_callback(self, button, interaction): # PAUSE
+                    await player.set_pause(True)
+
+                @nextcord.ui.button(label="resume", style=nextcord.ButtonStyle.green, emoji="▶️")
+                async def resume_callback(self, button, interaction): # RESUME
+                    await player.set_pause(False)
+
+                @nextcord.ui.button(label="skip", style=nextcord.ButtonStyle.green, emoji="⏭️")
+                async def skip_callback(self, button, interaction): # SKIP
+                    await player.skip()
+
+                @nextcord.ui.button(label="loop", style=nextcord.ButtonStyle.green, emoji="🔁")
+                async def loop_callback(self, button, interaction): # LOOP
+                    if not player.repeat:
+                        player.set_repeat(True)
+                        return await interaction.send("Loop on")
+                    if player.repeat:
+                        player.set_repeat(False)
+                        return await interaction.send("Loop off")
+
+                @nextcord.ui.button(label="leave", style=nextcord.ButtonStyle.red, emoji="🚪")
+                async def leave_callback(interaction): # LEAVE
+                    if not player.is_connected:
+                        return await interaction.send('I\'m not in any voice channel')
+                    if not interaction.user.voice or (player.is_connected and interaction.user.voice.channel.id != int(player.channel_id)):
+                        return await interaction.send('You\'re not in my voicechannel!')
+                    player.queue.clear()
+                    await player.stop()
+                    await guild.voice_client.disconnect(force=True)
+                    await interaction.send('Left voice channel. See you again!')
+
+            ButtonMenu = PauseButton()
+
+            chanel = self.bot.get_channel(934496557900914759)
+            await chanel.send(embed=NowPlay, view=ButtonMenu)
+            
+        
+
     # Command
     @commands.command(aliases=['p'])
     async def play(self, ctx, *, query: str):
         """ Searches and plays a song from a given query. """
-        # Get the player for this guild from cache.
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        # Remove leading and trailing <>. <> may be used to suppress embedding links in Discord.
         query = query.strip('<>')
 
         # Check if the user input might be a URL. If it isn't, we can Lavalink do a YouTube search for it instead.
@@ -175,7 +228,7 @@ class Music(commands.Cog):
         if not results or not results['tracks']:
             return await ctx.send('Nothing found!')
 
-        embed = discord.Embed(color=discord.Color.blurple())
+        embed = nextcord.Embed(color=nextcord.Color.blurple())
 
         # Valid loadTypes are:
         #   TRACK_LOADED    - single video/direct URL)
@@ -209,34 +262,11 @@ class Music(commands.Cog):
         if not player.is_playing:
             await player.play()
 
-    @commands.command(name='leave')
-    async def leave(self, ctx):
-        """ Disconnects the player from the voice channel and clears its queue. """
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-
-        if not player.is_connected:
-            # We can't disconnect, if we're not connected.
-            return await ctx.send('I\'m not in any voice channel')
-
-        if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
-            # Abuse prevention. Users not in voice channels, or not in the same voice channel as the bot
-            # may not disconnect the bot.
-            return await ctx.send('You\'re not in my voicechannel!')
-
-        # Clear the queue to ensure old tracks don't start playing
-        # when someone else queues something.
-        player.queue.clear()
-        # Stop the current track so Lavalink consumes less resources.
-        await player.stop()
-        # Disconnect from the voice channel.
-        await ctx.voice_client.disconnect(force=True)
-        await ctx.send('Left voice channel. See you again!', delete_after=20)
-
 
     @commands.command(aliases=['q'])
     async def queue(self, ctx):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        queue_embed = discord.Embed(colour=0x98EBF1, title="Now playing", description=f"[{player.current.title}]({player.current.uri}) {lavalink.format_time(player.current.duration)}")
+        queue_embed = nextcord.Embed(colour=0x98EBF1, title="Now playing", description=f"[{player.current.title}]({player.current.uri}) {lavalink.format_time(player.current.duration)}")
         queue_lists = ""
 
         if len(player.queue) != 0:
@@ -274,43 +304,22 @@ class Music(commands.Cog):
             elif player.repeat:
                 player.set_repeat(False)
                 return await ctx.send("Loop queue off", delete_after=20)
-        
-
-    @commands.command(name='skip')
-    async def skip(self, ctx):
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        await ctx.send(f"`{player.current.title}` is skipped by `{ctx.author.name}`")
-        await player.skip()
-
-    @commands.command(name='pause')
-    async def pause(self, ctx):
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        
-        if player.paused:
-            return await ctx.send("Already Paused", delete_after=20)
-        else:
-            await player.set_pause(True)
-            return await ctx.send("Paused", delete_after=20)
-
-    @commands.command(name='resume')
-    async def resume(self, ctx):
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-
-        if not player.paused:
-            return await ctx.send('I\'m not paused', delete_after=20)
-        else:
-            await player.set_pause(False)
-            return ctx.send('Resumed', delete_after=20)
 
     @commands.command(name='remove')
     async def remove(self, ctx, par: int = None):
 
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         if par is None:
-            return ctx.send('Please insert number of music in queue!')
+            return await ctx.send('Please insert number of music in queue!')
         else:
             player.queue.pop(par-1)
-            return ctx.send(f"Remove {player.queue[par].title}")
+            return await ctx.send(f"Remove {player.queue[par].title}")
+
+    @commands.command(name='clear')
+    async def clear(self, ctx):
+        player =  self.bot.lavalink.player_manger.get(ctx.guild.id)
+        player.queue.clear()
+        await ctx.send("Queue has been cleared")
 
 def setup(bot):
     bot.add_cog(Music(bot))

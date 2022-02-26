@@ -1,5 +1,5 @@
-import discord
-from discord.ext import commands
+import nextcord
+from nextcord.ext import commands
 
 import os
 from dotenv import load_dotenv
@@ -10,7 +10,7 @@ bot = commands.Bot(command_prefix='$', help_command=None)
 
 @bot.event
 async def on_ready():
-    await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.listening, name="$help"))
+    await bot.change_presence(status=nextcord.Status.online, activity=nextcord.Activity(type=nextcord.ActivityType.listening, name="$help"))
     print(f'{bot.user} has logged in.')
     bot.load_extension('cogs.musicAPI')
 
