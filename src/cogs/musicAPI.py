@@ -156,21 +156,6 @@ class Music(commands.Cog):
             # To save on resources, we can tell the bot to disconnect from the voicechannel.
             guild_id = int(event.player.guild_id)
             guild = self.bot.get_guild(guild_id)
-<<<<<<< Updated upstream
-            await guild.voice_client.disconnect(force=True)
-    # End of Classes
-
-    def ms_to_normal(self, ms):
-        sec = ms / 1000
-        if sec >= 60: # more than 1 min
-            duration_time = f"{int(sec//60)}:{int(sec%60)} min"
-        elif sec >= 3600: #more than 1 hour
-            duration_time = f"{int(sec//3600)}:{int((sec%3600)//60)}:{int((sec%3600)%60)} hours"
-        return duration_time
-
-    # Command Recieve
-    @commands.command(aliases=['p'])
-=======
             player = self.bot.lavalink.player_manager.get(guild_id)
             # await guild.voice_client.disconnect(force=True)   
 
@@ -346,7 +331,6 @@ class Music(commands.Cog):
 
     # Command
     @commands.command(aliases=['p','เล่นเพลง'])
->>>>>>> Stashed changes
     async def play(self, ctx, *, query: str):
         """ Searches and plays a song from a given query. """
         # Get the player for this guild from cache.
@@ -401,33 +385,6 @@ class Music(commands.Cog):
         if not player.is_playing:
             await player.play()
 
-<<<<<<< Updated upstream
-    @commands.command(aliases=['le'])
-    async def leave(self, ctx):
-        """ Disconnects the player from the voice channel and clears its queue. """
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-
-        if not player.is_connected:
-            # We can't disconnect, if we're not connected.
-            return await ctx.send('I\'m not in any voice channel')
-
-        if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
-            # Abuse prevention. Users not in voice channels, or not in the same voice channel as the bot
-            # may not disconnect the bot.
-            return await ctx.send('You\'re not in my voicechannel!')
-
-        # Clear the queue to ensure old tracks don't start playing
-        # when someone else queues something.
-        player.queue.clear()
-        # Stop the current track so Lavalink consumes less resources.
-        await player.stop()
-        # Disconnect from the voice channel.
-        await ctx.voice_client.disconnect(force=True)
-        await ctx.send('Left voice channel. See you again!', delete_after=20)
-
-
-=======
->>>>>>> Stashed changes
     @commands.command(aliases=['q'])
     async def queue(self, ctx):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
