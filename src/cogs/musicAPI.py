@@ -1,6 +1,4 @@
-from ast import arg
 import re
-from time import time
 
 import discord
 from discord.ext.commands.core import command
